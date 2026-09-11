@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import portfolioRouter from "./routes/portfolio.js";
 
 dotenv.config();
 
@@ -16,6 +17,8 @@ app.get("/", (req, res) => {
 app.get("/api/hello", (req, res) => {
   res.json({ message: "Hello from Express API!" });
 });
+
+app.use("/api/portfolio", portfolioRouter);
 
 const PORT = process.env.PORT || 5000;
 
