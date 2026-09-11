@@ -1,6 +1,6 @@
 "use client";
 
-import type { Stock } from "../types/portfolio";
+import type { PortfolioTotals } from "../types/portfolio";
 
 const INR = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -14,16 +14,15 @@ function formatINR(value: number) {
 }
 
 interface KPICardsProps {
-  stocks?: Stock[];
+  totals?: PortfolioTotals;
 }
 
-export default function KPICards({ stocks = [] }: KPICardsProps) {
-  const totalPresentValue = stocks.reduce(
-    (sum, s) => sum + (s.presentValue ?? 0),
-    0
-  );
-  const totalInvestment = stocks.reduce((sum, s) => sum + s.investment, 0);
-  const gainLoss = totalPresentValue - totalInvestment;
+export default function KPICards({ totals }: KPICardsProps) {
+  const t = totals;
+  const totalPresentValue = t?.totalPresentValue ?? 0;
+  const totalInvestment = t?.totalInvestment ?? 0;
+  const gainLoss = t?.gainLoss ?? 0;
+  const holdingsCount = t?.holdingsCount ?? 0;
   const isGain = gainLoss >= 0;
 
   const cards = [
@@ -70,8 +69,8 @@ export default function KPICards({ stocks = [] }: KPICardsProps) {
     },
     {
       label: "Holdings",
-      value: String(stocks.length),
-      sub: `${stocks.length === 1 ? "stock" : "stocks"} in portfolio`,
+      value: String(holdingsCount),
+      sub: `${holdingsCount === 1 ? "stock" : "stocks"} in portfolio`,
       iconBg: "bg-gradient-to-br from-amber-500 to-orange-600",
       icon: (
         <svg className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

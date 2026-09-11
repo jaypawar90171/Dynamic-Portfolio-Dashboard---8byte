@@ -21,9 +21,27 @@ export interface SectorSummary {
   gainLoss: number | null; 
   stockCount: number; 
 } 
+
+export interface PortfolioTotals {
+  totalInvestment: number;
+  totalPresentValue: number;
+  gainLoss: number;
+  holdingsCount: number;
+}
+
+export interface PaginationInfo {
+  currentPage: number;
+  totalPages: number;
+  totalStocks: number;
+  limit: number;
+}
+
 export default interface PortfolioResponse { 
   stocks: Stock[]; 
   sectors: SectorSummary[]; 
+  totals: PortfolioTotals;
   lastUpdated: string; 
+  marketOpen: boolean;
   errors: string[]; 
+  pagination?: PaginationInfo;
 }

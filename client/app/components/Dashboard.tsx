@@ -6,10 +6,13 @@ import type PortfolioResponse from "../types/portfolio";
 import DashboardHeader from "./DashboardHeader";
 import KPICards from "./KPICards";
 import LoadingSkeleton from "./LoadingSkeleton";
+import Pagination from "./Pagination";
 import PortfolioTable from "./PortfolioTable";
 import SectorSummary from "./SectorSummary";
 
 const REFRESH_INTERVAL_MS = 15_000;
+const DEBOUNCE_MS = 300;
+const DEFAULT_LIMIT = 10;
 
 type ConnectionStatus = "live" | "stale" | "error";
 
@@ -17,15 +20,17 @@ export default function Dashboard() {
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("stale");
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const inFlight = useRef(false);
   const hasData = useRef(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
 
     try {
-      const response = await fetchPortfolio();
+      const response = await fetchPortfolio({ page, limit: DEFAULT_LIMIT });
       hasData.current = true;
       setData(response);
       setError(null);
@@ -36,7 +41,7 @@ export default function Dashboard() {
     } finally {
       inFlight.current = false;
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     const initial = setTimeout(load, 0);
@@ -47,12 +52,28 @@ export default function Dashboard() {
     };
   }, [load]);
 
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(load, DEBOUNCE_MS);
+  }, [load]);
+
+  const handlePageChange = useCallback((next: number) => {
+    setPage(next);
+  }, []);
+
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-slate-100 via-slate-50 to-slate-200">
       <DashboardHeader
         lastUpdated={data?.lastUpdated ?? null}
         status={status}
-        onRefresh={load}
+        marketOpen={data?.marketOpen ?? false}
+        onRefresh={handleRefresh}
       />
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 px-4 py-6 sm:px-6">
@@ -83,8 +104,15 @@ export default function Dashboard() {
           )
         ) : (
           <div className="flex flex-col gap-5 animate-fade-in">
-            <KPICards stocks={data.stocks} />
+            <KPICards totals={data.totals} />
             <PortfolioTable stocks={data.stocks} />
+            <Pagination
+              currentPage={data.pagination?.currentPage ?? 1}
+              totalPages={data.pagination?.totalPages ?? 1}
+              totalStocks={data.pagination?.totalStocks ?? data.stocks.length}
+              limit={data.pagination?.limit ?? data.stocks.length}
+              onPageChange={handlePageChange}
+            />
             <SectorSummary sectors={data.sectors} stocks={data.stocks} />
           </div>
         )}

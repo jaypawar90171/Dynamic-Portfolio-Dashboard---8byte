@@ -21,12 +21,14 @@ function formatTimestamp(iso: string | null) {
 interface DashboardHeaderProps {
   lastUpdated: string | null;
   status: ConnectionStatus;
+  marketOpen: boolean;
   onRefresh: () => void;
 }
 
 export default function DashboardHeader({
   lastUpdated,
   status,
+  marketOpen,
   onRefresh,
 }: DashboardHeaderProps) {
   const { dot, label } = STATUS_STYLE[status];
@@ -46,6 +48,16 @@ export default function DashboardHeader({
             />
             <span>{label}</span>
           </div>
+
+          <span
+            className={`hidden rounded-full px-2 py-0.5 text-[10px] font-semibold sm:inline-block ${
+              marketOpen
+                ? "bg-green-900/40 text-green-300"
+                : "bg-gray-800 text-gray-500"
+            }`}
+          >
+            {marketOpen ? "Market Open" : "Market Closed"}
+          </span>
         </div>
 
         <div className="flex items-center gap-3 sm:gap-4">
