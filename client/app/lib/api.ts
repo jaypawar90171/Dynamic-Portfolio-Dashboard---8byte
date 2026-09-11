@@ -1,6 +1,10 @@
 import type PortfolioResponse from "../types/portfolio";
 
-const API_URL = "/api/portfolio";
+const BACKEND_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://dynamic-portfolio-dashboard-8byte-1.onrender.com";
+
+const API_URL = `${BACKEND_BASE}/api/portfolio`;
 
 export interface FetchPortfolioParams {
   page?: number;
