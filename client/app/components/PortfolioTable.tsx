@@ -3,22 +3,27 @@
 import { useMemo, useState } from "react";
 import type { Stock } from "../types/portfolio";
 import StockRow from "./StockRow";
+import MobileStockCard from "./MobileStockCard";
 
 type SortKey = keyof Stock;
 type SortDir = "asc" | "desc";
 
-const COLUMNS: { key: SortKey; label: string }[] = [
+const COLUMNS: {
+  key: SortKey;
+  label: string;
+  hideBelow?: "lg";
+}[] = [
   { key: "name", label: "Particulars" },
   { key: "purchasePrice", label: "Purchase Price" },
   { key: "quantity", label: "Qty" },
   { key: "investment", label: "Investment" },
   { key: "portfolioPercent", label: "Portfolio (%)" },
-  { key: "exchange", label: "NSE/BSE" },
+  { key: "exchange", label: "NSE/BSE", hideBelow: "lg" },
   { key: "cmp", label: "CMP" },
   { key: "presentValue", label: "Present Value" },
   { key: "gainLoss", label: "Gain/Loss" },
-  { key: "peRatio", label: "P/E Ratio" },
-  { key: "latestEarnings", label: "Latest Earnings" },
+  { key: "peRatio", label: "P/E Ratio", hideBelow: "lg" },
+  { key: "latestEarnings", label: "Latest Earnings", hideBelow: "lg" },
 ];
 
 function compare(a: Stock[keyof Stock], b: Stock[keyof Stock]): number {
@@ -29,38 +34,13 @@ function compare(a: Stock[keyof Stock], b: Stock[keyof Stock]): number {
   return String(a).localeCompare(String(b));
 }
 
-const SKELETON_WIDTHS = [80, 65, 50, 75, 60, 70, 55, 80, 45, 60];
-
-function TableSkeleton() {
-  return (
-    <tbody>
-      {Array.from({ length: 8 }).map((_, row) => (
-        <tr key={row} className="border-b border-gray-100 animate-pulse">
-          {COLUMNS.map((col, i) => (
-            <td key={col.key} className="px-4 py-3">
-              <div
-                className="h-4 rounded bg-gray-200"
-                style={{ width: `${SKELETON_WIDTHS[i % SKELETON_WIDTHS.length]}%` }}
-              />
-            </td>
-          ))}
-        </tr>
-      ))}
-    </tbody>
-  );
-}
-
-interface PortfolioTableProps {
-  stocks?: Stock[];
-  loading?: boolean;
-  error?: string | null;
-}
-
 export default function PortfolioTable({
   stocks = [],
-  loading = false,
   error = null,
-}: PortfolioTableProps) {
+}: {
+  stocks?: Stock[];
+  error?: string | null;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -80,63 +60,67 @@ export default function PortfolioTable({
     }
   }
 
-  return (
-    <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-gray-900 text-left text-xs font-semibold uppercase tracking-wider text-gray-300">
-            {COLUMNS.map((col) => (
-              <th
-                key={col.key}
-                onClick={() => handleSort(col.key)}
-                className="cursor-pointer select-none px-4 py-3 whitespace-nowrap hover:text-white transition-colors"
-              >
-                <span className="inline-flex items-center gap-1">
-                  {col.label}
-                  {sortKey === col.key && (
-                    <span className="text-white">
-                      {sortDir === "asc" ? "▲" : "▼"}
-                    </span>
-                  )}
-                </span>
-              </th>
-            ))}
-          </tr>
-        </thead>
+  const thClass = (hideBelow?: "lg") =>
+    `cursor-pointer select-none whitespace-nowrap px-4 py-3 font-semibold uppercase tracking-wider transition-colors hover:text-white ${
+      hideBelow ? "hidden lg:table-cell" : ""
+    }`;
 
-        {loading ? (
-          <TableSkeleton />
-        ) : error ? (
-          <tbody>
-            <tr>
-              <td colSpan={COLUMNS.length} className="px-4 py-12 text-center">
-                <div className="flex flex-col items-center gap-2">
-                  <span className="text-sm font-medium text-red-600">
-                    Failed to load portfolio
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 px-6 py-12 text-center">
+        <p className="text-sm font-medium text-red-600">
+          Failed to load portfolio
+        </p>
+        <p className="mt-1 text-xs text-red-400">{error}</p>
+      </div>
+    );
+  }
+
+  if (stocks.length === 0) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center shadow-sm">
+        <p className="text-sm text-gray-400">No holdings to display</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="grid gap-3 md:hidden">
+        {sorted.map((stock) => (
+          <MobileStockCard key={stock.symbol} stock={stock} />
+        ))}
+      </div>
+
+      <div className="hidden overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm md:block">
+        <table className="w-full text-sm border-separate border-spacing-0">
+          <thead className="sticky top-0 z-10">
+            <tr className="text-left text-xs text-gray-300">
+              {COLUMNS.map((col) => (
+                <th
+                  key={col.key}
+                  onClick={() => handleSort(col.key)}
+                  className={`${thClass(col.hideBelow)} bg-gray-900`}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {col.label}
+                    {sortKey === col.key && (
+                      <span className="text-white">
+                        {sortDir === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
                   </span>
-                  <span className="text-xs text-gray-500">{error}</span>
-                </div>
-              </td>
+                </th>
+              ))}
             </tr>
-          </tbody>
-        ) : stocks.length === 0 ? (
-          <tbody>
-            <tr>
-              <td colSpan={COLUMNS.length} className="px-4 py-12 text-center">
-                <span className="text-sm text-gray-400">
-                  No holdings to display
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        ) : (
+          </thead>
           <tbody>
             {sorted.map((stock) => (
               <StockRow key={stock.symbol} stock={stock} />
             ))}
           </tbody>
-        )}
-      </table>
-    </div>
+        </table>
+      </div>
+    </>
   );
 }
