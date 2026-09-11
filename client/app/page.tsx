@@ -1,10 +1,5 @@
-import React from 'react'
-import PortfolioTable from './components/PortfolioTable'
+import Dashboard from "./components/Dashboard";
 
-const page = () => {
-  return (
-    <PortfolioTable />
-  )
+export default function Page() {
+  return <Dashboard />;
 }
-
-export default page
