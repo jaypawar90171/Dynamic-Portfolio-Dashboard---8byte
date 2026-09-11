@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.json({ message: "Backend is running 🚀" });
+  res.json({ message: "Backend is running" });
 });
 
 app.get("/api/hello", (req, res) => {
