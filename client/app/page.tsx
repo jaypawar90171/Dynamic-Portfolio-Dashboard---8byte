@@ -1,8 +1,9 @@
 import React from 'react'
+import PortfolioTable from './components/PortfolioTable'
 
 const page = () => {
   return (
-    <div>page</div>
+    <PortfolioTable />
   )
 }
 
