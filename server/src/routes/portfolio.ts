@@ -7,6 +7,9 @@ import { getCache, peekCache, setCache } from "../services/cache.js";
 import { CACHE_TTL_MS, DEGRADED_TTL_MS } from "../services/cache.js";
 
 const CACHE_KEY = "portfolio_data";
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 50;
 
 export interface EnrichedStock {
   name: string;
@@ -32,12 +35,31 @@ export interface SectorSummary {
   stockCount: number;
 }
 
-export interface PortfolioResponse {
+export interface PortfolioTotals {
+  totalInvestment: number;
+  totalPresentValue: number;
+  gainLoss: number;
+  holdingsCount: number;
+}
+
+export interface PaginationInfo {
+  currentPage: number;
+  totalPages: number;
+  totalStocks: number;
+  limit: number;
+}
+
+export interface FullPortfolio {
   stocks: EnrichedStock[];
   sectors: SectorSummary[];
+  totals: PortfolioTotals;
   lastUpdated: string;
   marketOpen: boolean;
   errors: string[];
+}
+
+export interface PortfolioResponse extends FullPortfolio {
+  pagination: PaginationInfo;
 }
 
 function yahooKey(holding: Holding): string {
@@ -46,9 +68,6 @@ function yahooKey(holding: Holding): string {
     : `${holding.symbol}.BO`;
 }
 
-/**
- * NSE/BSE equity market hours: 09:15–15:30 IST, Monday–Friday.
- */
 function isMarketOpen(now: Date = new Date()): boolean {
   const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   const istMinutes = (utcMinutes + 330) % 1440;
@@ -58,7 +77,7 @@ function isMarketOpen(now: Date = new Date()): boolean {
   return weekday && marketHours;
 }
 
-export async function buildPortfolioResponse(): Promise<PortfolioResponse> {
+async function buildFullPortfolio(): Promise<FullPortfolio> {
   const errors: string[] = [];
   let yahooData: Record<string, YahooData> = {};
 
@@ -70,9 +89,11 @@ export async function buildPortfolioResponse(): Promise<PortfolioResponse> {
   }
 
   const totalInvestment = holdings.reduce(
-    (sum, holding) => sum + holding.purchasePrice * holding.quantity,
+    (sum, h) => sum + h.purchasePrice * h.quantity,
     0
   );
+
+  let totalPresentValue = 0;
 
   const stocks: EnrichedStock[] = holdings.map((holding) => {
     const live = yahooData[yahooKey(holding)];
@@ -85,6 +106,8 @@ export async function buildPortfolioResponse(): Promise<PortfolioResponse> {
     const cmp = live?.cmp ?? null;
     const presentValue = cmp !== null ? cmp * holding.quantity : null;
     const gainLoss = presentValue !== null ? presentValue - investment : null;
+
+    if (presentValue !== null) totalPresentValue += presentValue;
 
     return {
       name: holding.name,
@@ -113,19 +136,16 @@ export async function buildPortfolioResponse(): Promise<PortfolioResponse> {
 
   const sectors: SectorSummary[] = [...sectorMap.entries()].map(
     ([sector, list]) => {
-      const sectorInvestment = list.reduce(
-        (sum, stock) => sum + stock.investment,
-        0
-      );
-      const sectorPresentValue = list.reduce(
-        (sum, stock) => sum + (stock.presentValue ?? 0),
+      const sInvestment = list.reduce((sum, s) => sum + s.investment, 0);
+      const sPresentValue = list.reduce(
+        (sum, s) => sum + (s.presentValue ?? 0),
         0
       );
       return {
         sector,
-        totalInvestment: sectorInvestment,
-        totalPresentValue: sectorPresentValue,
-        gainLoss: sectorPresentValue - sectorInvestment,
+        totalInvestment: sInvestment,
+        totalPresentValue: sPresentValue,
+        gainLoss: sPresentValue - sInvestment,
         stockCount: list.length,
       };
     }
@@ -134,45 +154,75 @@ export async function buildPortfolioResponse(): Promise<PortfolioResponse> {
   return {
     stocks,
     sectors,
+    totals: {
+      totalInvestment,
+      totalPresentValue,
+      gainLoss: totalPresentValue - totalInvestment,
+      holdingsCount: holdings.length,
+    },
     lastUpdated: new Date().toISOString(),
     marketOpen: isMarketOpen(),
     errors,
   };
 }
 
+function paginateResponse(
+  full: FullPortfolio,
+  page: number,
+  limit: number
+): PortfolioResponse {
+  const totalStocks = full.stocks.length;
+  const totalPages = Math.max(1, Math.ceil(totalStocks / limit));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * limit;
+  const stocks = full.stocks.slice(start, start + limit);
+
+  return {
+    ...full,
+    stocks,
+    pagination: {
+      currentPage: safePage,
+      totalPages,
+      totalStocks,
+      limit,
+    },
+  };
+}
+
 const router = Router();
 
-router.get("/", async (_req, res, next) => {
-  const cached = getCache<PortfolioResponse>(CACHE_KEY);
+router.get("/", async (req, res, next) => {
+  const page = Math.max(1, Number(req.query.page) || DEFAULT_PAGE);
+  const limit = Math.min(
+    MAX_LIMIT,
+    Math.max(1, Number(req.query.limit) || DEFAULT_LIMIT)
+  );
+
+  const cached = getCache<FullPortfolio>(CACHE_KEY);
   if (cached) {
-    res.json(cached);
+    res.json(paginateResponse(cached, page, limit));
     return;
   }
 
   try {
-    const response = await buildPortfolioResponse();
-    const degraded = response.errors.length > 0;
+    const full = await buildFullPortfolio();
+    const degraded = full.errors.length > 0;
 
-    // fallback: if Yahoo failed entirely and we have a previous (even expired) snapshot, serve it with an error flag.
     if (degraded) {
-      const stale = peekCache<PortfolioResponse>(CACHE_KEY);
+      const stale = peekCache<FullPortfolio>(CACHE_KEY);
       if (stale) {
-        res.json({
+        const merged: FullPortfolio = {
           ...stale,
           lastUpdated: new Date().toISOString(),
-          errors: [...new Set([...stale.errors, ...response.errors])],
-        });
+          errors: [...new Set([...stale.errors, ...full.errors])],
+        };
+        res.json(paginateResponse(merged, page, limit));
         return;
       }
     }
 
-    // Extend cache TTL when the fetch degraded (rate-limit relief).
-    setCache(
-      CACHE_KEY,
-      response,
-      degraded ? DEGRADED_TTL_MS : CACHE_TTL_MS
-    );
-    res.json(response);
+    setCache(CACHE_KEY, full, degraded ? DEGRADED_TTL_MS : CACHE_TTL_MS);
+    res.json(paginateResponse(full, page, limit));
   } catch (error) {
     next(error);
   }

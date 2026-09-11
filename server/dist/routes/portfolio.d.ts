@@ -20,14 +20,29 @@ export interface SectorSummary {
     gainLoss: number;
     stockCount: number;
 }
-export interface PortfolioResponse {
+export interface PortfolioTotals {
+    totalInvestment: number;
+    totalPresentValue: number;
+    gainLoss: number;
+    holdingsCount: number;
+}
+export interface PaginationInfo {
+    currentPage: number;
+    totalPages: number;
+    totalStocks: number;
+    limit: number;
+}
+export interface FullPortfolio {
     stocks: EnrichedStock[];
     sectors: SectorSummary[];
+    totals: PortfolioTotals;
     lastUpdated: string;
     marketOpen: boolean;
     errors: string[];
 }
-export declare function buildPortfolioResponse(): Promise<PortfolioResponse>;
+export interface PortfolioResponse extends FullPortfolio {
+    pagination: PaginationInfo;
+}
 declare const router: import("express-serve-static-core").Router;
 export default router;
 //# sourceMappingURL=portfolio.d.ts.map

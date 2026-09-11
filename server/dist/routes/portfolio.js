@@ -4,14 +4,14 @@ import { fetchYahooData } from "../services/yahooFinance.js";
 import { getCache, peekCache, setCache } from "../services/cache.js";
 import { CACHE_TTL_MS, DEGRADED_TTL_MS } from "../services/cache.js";
 const CACHE_KEY = "portfolio_data";
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 50;
 function yahooKey(holding) {
     return holding.exchange === "NSE"
         ? `${holding.symbol}.NS`
         : `${holding.symbol}.BO`;
 }
-/**
- * NSE/BSE equity market hours: 09:15–15:30 IST, Monday–Friday.
- */
 function isMarketOpen(now = new Date()) {
     const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
     const istMinutes = (utcMinutes + 330) % 1440;
@@ -20,7 +20,7 @@ function isMarketOpen(now = new Date()) {
     const marketHours = istMinutes >= 555 && istMinutes <= 930;
     return weekday && marketHours;
 }
-export async function buildPortfolioResponse() {
+async function buildFullPortfolio() {
     const errors = [];
     let yahooData = {};
     try {
@@ -30,7 +30,8 @@ export async function buildPortfolioResponse() {
         const message = error instanceof Error ? error.message : String(error);
         errors.push(`Yahoo Finance unavailable: ${message}`);
     }
-    const totalInvestment = holdings.reduce((sum, holding) => sum + holding.purchasePrice * holding.quantity, 0);
+    const totalInvestment = holdings.reduce((sum, h) => sum + h.purchasePrice * h.quantity, 0);
+    let totalPresentValue = 0;
     const stocks = holdings.map((holding) => {
         const live = yahooData[yahooKey(holding)];
         if (live === undefined) {
@@ -40,6 +41,8 @@ export async function buildPortfolioResponse() {
         const cmp = live?.cmp ?? null;
         const presentValue = cmp !== null ? cmp * holding.quantity : null;
         const gainLoss = presentValue !== null ? presentValue - investment : null;
+        if (presentValue !== null)
+            totalPresentValue += presentValue;
         return {
             name: holding.name,
             symbol: holding.symbol,
@@ -63,50 +66,73 @@ export async function buildPortfolioResponse() {
         sectorMap.set(stock.sector, list);
     }
     const sectors = [...sectorMap.entries()].map(([sector, list]) => {
-        const sectorInvestment = list.reduce((sum, stock) => sum + stock.investment, 0);
-        const sectorPresentValue = list.reduce((sum, stock) => sum + (stock.presentValue ?? 0), 0);
+        const sInvestment = list.reduce((sum, s) => sum + s.investment, 0);
+        const sPresentValue = list.reduce((sum, s) => sum + (s.presentValue ?? 0), 0);
         return {
             sector,
-            totalInvestment: sectorInvestment,
-            totalPresentValue: sectorPresentValue,
-            gainLoss: sectorPresentValue - sectorInvestment,
+            totalInvestment: sInvestment,
+            totalPresentValue: sPresentValue,
+            gainLoss: sPresentValue - sInvestment,
             stockCount: list.length,
         };
     });
     return {
         stocks,
         sectors,
+        totals: {
+            totalInvestment,
+            totalPresentValue,
+            gainLoss: totalPresentValue - totalInvestment,
+            holdingsCount: holdings.length,
+        },
         lastUpdated: new Date().toISOString(),
         marketOpen: isMarketOpen(),
         errors,
     };
 }
+function paginateResponse(full, page, limit) {
+    const totalStocks = full.stocks.length;
+    const totalPages = Math.max(1, Math.ceil(totalStocks / limit));
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * limit;
+    const stocks = full.stocks.slice(start, start + limit);
+    return {
+        ...full,
+        stocks,
+        pagination: {
+            currentPage: safePage,
+            totalPages,
+            totalStocks,
+            limit,
+        },
+    };
+}
 const router = Router();
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
+    const page = Math.max(1, Number(req.query.page) || DEFAULT_PAGE);
+    const limit = Math.min(MAX_LIMIT, Math.max(1, Number(req.query.limit) || DEFAULT_LIMIT));
     const cached = getCache(CACHE_KEY);
     if (cached) {
-        res.json(cached);
+        res.json(paginateResponse(cached, page, limit));
         return;
     }
     try {
-        const response = await buildPortfolioResponse();
-        const degraded = response.errors.length > 0;
-        // Graceful degradation: if Yahoo failed entirely and we have a
-        // previous (even expired) snapshot, serve it with an error flag.
+        const full = await buildFullPortfolio();
+        const degraded = full.errors.length > 0;
         if (degraded) {
             const stale = peekCache(CACHE_KEY);
             if (stale) {
-                res.json({
+                const merged = {
                     ...stale,
                     lastUpdated: new Date().toISOString(),
-                    errors: [...new Set([...stale.errors, ...response.errors])],
-                });
+                    errors: [...new Set([...stale.errors, ...full.errors])],
+                };
+                res.json(paginateResponse(merged, page, limit));
                 return;
             }
         }
-        // Extend cache TTL when the fetch degraded (rate-limit relief).
-        setCache(CACHE_KEY, response, degraded ? DEGRADED_TTL_MS : CACHE_TTL_MS);
-        res.json(response);
+        setCache(CACHE_KEY, full, degraded ? DEGRADED_TTL_MS : CACHE_TTL_MS);
+        res.json(paginateResponse(full, page, limit));
     }
     catch (error) {
         next(error);
